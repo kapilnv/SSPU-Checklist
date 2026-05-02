@@ -521,8 +521,7 @@ async function submitChecklist() {
   });
 
   try {
-    const res  = await fetch(`${apiUrl}?${params}`);
-    const json = await res.json();
+    const json = await jsonp(apiUrl, params);
     if (json.success) {
       remoteData[id] = { ...currentChecks, ts: new Date().toISOString() };
       showSuccess();
@@ -530,7 +529,7 @@ async function submitChecklist() {
       showToast('❌ Error: ' + (json.error || 'Unknown'));
     }
   } catch(e) {
-    showToast('❌ Network error — check your URL');
+    showToast('❌ Could not reach backend — check the URL in setup');
   }
   btn.disabled = false; btn.innerHTML = 'Submit My Status';
 }
@@ -580,8 +579,7 @@ async function loadDashData() {
     '<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--muted);">Fetching from Google Sheets…</td></tr>';
 
   try {
-    const res  = await fetch(`${apiUrl}?action=getAll`);
-    const json = await res.json();
+    const json = await jsonp(apiUrl, new URLSearchParams({ action:'getAll' }));
     if (json.success) {
       remoteData = {};
       json.data.forEach(r => { remoteData[r.id] = r; });
@@ -589,7 +587,7 @@ async function loadDashData() {
       showToast('❌ ' + (json.error || 'Fetch error'));
     }
   } catch(e) {
-    showToast('❌ Could not reach backend');
+    showToast('❌ Could not reach backend — check the URL in setup');
   }
   renderDash();
 }
@@ -703,6 +701,39 @@ function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+/* ═══════════════════════════════════════════
+   JSONP — bypasses CORS for Google Apps Script
+═══════════════════════════════════════════ */
+function jsonp(baseUrl, params, timeout = 12000) {
+  return new Promise((resolve, reject) => {
+    const cb  = 'cb_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
+    params.set('callback', cb);
+    const url = baseUrl + '?' + params.toString();
+
+    const script = document.createElement('script');
+    script.src   = url;
+
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('Timeout'));
+    }, timeout);
+
+    window[cb] = (data) => {
+      clearTimeout(timer);
+      cleanup();
+      resolve(data);
+    };
+
+    function cleanup() {
+      delete window[cb];
+      if (script.parentNode) script.parentNode.removeChild(script);
+    }
+
+    script.onerror = () => { clearTimeout(timer); cleanup(); reject(new Error('Script load error')); };
+    document.head.appendChild(script);
+  });
 }
 
 init();
